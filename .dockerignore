@@ -1,0 +1,10 @@
+.git
+config.toml
+postgres_data
+.local
+bin
+coverage.out
+
+ent/*
+!ent/schema/
+!ent/generate.go

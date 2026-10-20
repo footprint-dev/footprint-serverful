@@ -1,0 +1,10 @@
+/config.toml
+/postgres_data/
+.local/
+bin/
+coverage.out
+
+# Keep Ent schemas and the generation entry point, not generated code.
+/ent/*
+!/ent/schema/
+!/ent/generate.go

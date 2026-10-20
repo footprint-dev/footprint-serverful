@@ -1,0 +1,35 @@
+services:
+  api:
+    build:
+      context: .
+      args:
+        GOPROXY: "${GOPROXY:-https://proxy.golang.org,direct}"
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./config.toml
+        target: /etc/footprint/config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    stop_grace_period: 15s
+
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: footprint
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to match config.toml}"
+      POSTGRES_DB: footprint
+    volumes:
+      - ./postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U footprint -d footprint"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
