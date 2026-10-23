@@ -150,3 +150,7 @@ style = "mapbox://styles/mapbox/light-v11"
 只有 `pk.` 开头的公开 Mapbox Token 可以配置并返回给浏览器; 留空时仍可使用后端 API. 该接口仅返回地图公开配置, 不返回业务 Token 或数据库信息. 独立前端使用 `API_BACKEND=serverful` 时会把配置请求转发给 Go. 配置在服务启动时加载, 修改后重启即可, 无需重新构建前端. 后续嵌入前端静态资源时可以继续使用同一接口.
 
 详细接口见 [API 文档](docs/api.md), 检测规则与限制见 [轨迹质量检测](docs/trajectory.md).
+
+## 许可证
+
+本项目采用 [GNU Affero General Public License v3.0](LICENSE), SPDX 标识为 `AGPL-3.0-only`.
