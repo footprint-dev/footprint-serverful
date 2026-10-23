@@ -135,6 +135,6 @@ docker stop footprint-serverful-test
 
 ## 前端接入
 
-后端提供与 `footprint-serverless` 当前 `/api/*` 相同的业务协议. 原 Console Worker 使用 Cloudflare Service Binding, 需要另行将其服务端代理改为访问本服务的 HTTP 地址. 代理负责添加 Bearer Token, 不应把 Token 下发到浏览器. `/api/console-config` 和 Cloudflare Access 登录属于控制台, 不由本服务提供.
+后端提供与 `footprint-serverless` 当前 `/api/*` 相同的业务协议. 原 Console Worker 使用 Cloudflare Service Binding, 需要另行将其服务端代理改为访问本服务的 HTTP 地址. 独立前端在 Serverful 模式下透传客户端认证凭据, 不配置或注入共享 API Token. 本服务仍要求客户端提供合法的 `Authorization: Bearer <ingest_token>`, 未认证请求返回 `401`. `/api/console-config` 和 Cloudflare Access 登录属于控制台, 不由本服务提供.
 
 详细接口见 [API 文档](docs/api.md), 检测规则与限制见 [轨迹质量检测](docs/trajectory.md).
