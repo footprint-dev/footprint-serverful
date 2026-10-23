@@ -1,5 +1,11 @@
+[server]
+addr = ":8080"
 # Use the same password as PostgreSQL's POSTGRES_PASSWORD startup parameter.
 database_url = "postgres://footprint:CHANGE_ME@db:5432/footprint?sslmode=disable"
 # Generate a token with: openssl rand -hex 32
 ingest_token = ""
-http_addr = ":8080"
+
+[mapbox]
+# Public map configuration returned to the browser. Leave the token empty for API-only use.
+public_token = ""
+style = "mapbox://styles/mapbox/light-v11"

@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 
+	"footprint-serverful/internal/config"
 	"footprint-serverful/internal/store"
 )
 
@@ -38,8 +39,8 @@ type server struct {
 
 var bearerPattern = regexp.MustCompile(`(?i)^Bearer (\S+)$`)
 
-func New(db *store.Store, token string) *echo.Echo {
-	s := &server{store: db, token: token}
+func New(db *store.Store, cfg config.Config) *echo.Echo {
+	s := &server{store: db, token: cfg.Server.IngestToken}
 	e := echo.New()
 	e.HTTPErrorHandler = errorHandler
 	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -57,6 +58,13 @@ func New(db *store.Store, token string) *echo.Echo {
 	e.GET("/health", func(c *echo.Context) error {
 		return c.JSON(200, map[string]string{"status": "ok", "name": "footprint-serverful-api"})
 	})
+	e.GET("/api/console-config", func(c *echo.Context) error {
+		return c.JSON(200, map[string]any{
+			"mapboxToken":  cfg.Mapbox.PublicToken,
+			"mapboxStyle":  cfg.Mapbox.Style,
+			"localPreview": false,
+		})
+	})
 	e.GET("/api/me", func(c *echo.Context) error {
 		return c.JSON(200, map[string]any{"authenticated": true, "method": "bearer"})
 	})
@@ -73,7 +81,7 @@ func New(db *store.Store, token string) *echo.Echo {
 func (s *server) authenticate(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		c.Response().Header().Set("Cache-Control", "no-store")
-		if strings.HasPrefix(c.Request().URL.Path, "/api/") {
+		if strings.HasPrefix(c.Request().URL.Path, "/api/") && c.Path() != "/api/console-config" {
 			if s.token == "" {
 				return &apiError{Status: 503, Code: "auth_not_configured", Message: "Ingest token is not configured"}
 			}

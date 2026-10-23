@@ -28,7 +28,7 @@ func main() {
 	cfg, err := config.Load(*path)
 	if err == nil {
 		if *probe {
-			err = healthcheck(cfg.HTTPAddr)
+			err = healthcheck(cfg.Server.Addr)
 		} else {
 			err = run(cfg)
 		}
@@ -44,7 +44,7 @@ func run(cfg config.Config) error {
 	defer stop()
 	startup, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	db, err := store.Open(startup, cfg.DatabaseURL)
+	db, err := store.Open(startup, cfg.Server.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -54,10 +54,10 @@ func run(cfg config.Config) error {
 		return errors.New("database schema initialization failed")
 	}
 	cancel()
-	e := api.New(db, cfg.IngestToken)
+	e := api.New(db, cfg)
 	e.Logger = slog.Default()
 	serverConfig := echo.StartConfig{
-		Address: cfg.HTTPAddr, HideBanner: true, GracefulTimeout: 10 * time.Second,
+		Address: cfg.Server.Addr, HideBanner: true, GracefulTimeout: 10 * time.Second,
 		BeforeServeFunc: func(server *http.Server) error {
 			server.ReadHeaderTimeout = 5 * time.Second
 			server.ReadTimeout = 30 * time.Second

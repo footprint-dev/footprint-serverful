@@ -8,15 +8,18 @@ import (
 )
 
 func TestInvalidConfiguration(t *testing.T) {
+	database := "[server]\ndatabase_url = 'postgres://user:private-password@db/footprint'\n"
+	token := "ingest_token = 'private-token'\n"
 	for _, tc := range []struct {
 		name, content, message string
 	}{
-		{"missing database", `ingest_token = "private-token"`, "database_url"},
-		{"missing token", `database_url = "postgres://user:private-password@db/footprint"`, "ingest_token"},
-		{"whitespace token", "database_url = 'postgres://db/footprint'\ningest_token = 'private token'", "ingest_token"},
-		{"invalid address", "database_url = 'postgres://db/footprint'\ningest_token = 'private-token'\nhttp_addr = 'invalid'", "http_addr"},
-		{"syntax error", `ingest_token = "private-token`, "invalid TOML"},
-		{"unknown field", `ingest_tokne = "private-token"`, "unknown configuration field"},
+		{"missing database", "[server]\n" + token, "server.database_url"},
+		{"missing token", database, "server.ingest_token"},
+		{"whitespace token", database + "ingest_token = 'private token'", "server.ingest_token"},
+		{"secret Mapbox token", database + token + "[mapbox]\npublic_token = 'sk.private-mapbox-token'", "mapbox.public_token"},
+		{"invalid address", database + token + "addr = 'invalid'", "server.addr"},
+		{"syntax error", "[server]\ningest_token = 'private-token", "invalid TOML"},
+		{"unknown field", "[server]\ningest_tokne = 'private-token'", "unknown configuration field"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.toml")
@@ -27,7 +30,7 @@ func TestInvalidConfiguration(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("unexpected configuration error: %v", err)
 			}
-			for _, secret := range []string{"private-token", "private-password", "private token"} {
+			for _, secret := range []string{"private-token", "private-password", "private token", "sk.private-mapbox-token"} {
 				if strings.Contains(err.Error(), secret) {
 					t.Fatal("configuration error disclosed a credential")
 				}

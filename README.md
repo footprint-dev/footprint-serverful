@@ -14,7 +14,7 @@ openssl rand -hex 32
 openssl rand -hex 32
 ```
 
-在 `config.toml` 中填写数据库连接地址 `database_url` 的密码和 `ingest_token`. Docker 内的数据库主机名使用 `db`. PostgreSQL 官方镜像的初始化密码通过启动参数提供, 与 `database_url` 中的密码保持一致:
+在 `config.toml` 中填写数据库连接地址 `server.database_url` 的密码和 `server.ingest_token`. Docker 内的数据库主机名使用 `db`. PostgreSQL 官方镜像的初始化密码通过启动参数提供, 与 `server.database_url` 中的密码保持一致:
 
 ```bash
 export POSTGRES_PASSWORD='填写 config.toml 中的数据库密码'
@@ -23,12 +23,12 @@ docker compose ps
 curl http://localhost:8080/health
 ```
 
-Compose 将当前目录的 `config.toml` 只读挂载到容器内的 `/etc/footprint/config.toml`, 将 `./postgres_data` 挂载到 PostgreSQL 的 `/var/lib/postgresql`. 默认 API 端口为 `8080`, 修改监听端口时同时调整 TOML 的 `http_addr` 和 Compose 的端口映射. PostgreSQL 仅通过 Compose 内部网络访问, 数据保存在当前目录的 `postgres_data/` 中. API 等待数据库健康后启动, 启动时由 Ent 自动创建表、外键和索引.
+Compose 将当前目录的 `config.toml` 只读挂载到容器内的 `/etc/footprint/config.toml`, 将 `./postgres_data` 挂载到 PostgreSQL 的 `/var/lib/postgresql`. 默认 API 端口为 `8080`, 修改监听端口时同时调整 TOML 的 `server.addr` 和 Compose 的端口映射. PostgreSQL 仅通过 Compose 内部网络访问, 数据保存在当前目录的 `postgres_data/` 中. API 等待数据库健康后启动, 启动时由 Ent 自动创建表、外键和索引.
 
 构建环境无法访问默认 Go 模块代理时, 使用 `docker compose build --build-arg GOPROXY=https://goproxy.cn,direct` 构建后再启动服务. 单独使用 `docker build` 时同样通过 `--build-arg GOPROXY=https://goproxy.cn,direct` 传入. 此参数只影响构建阶段.
 
 ```bash
-export FOOTPRINT_TOKEN='填写 config.toml 中的 ingest_token'
+export FOOTPRINT_TOKEN='填写 config.toml 中的 server.ingest_token'
 
 curl -X PUT http://localhost:8080/api/location \
   -H "Authorization: Bearer $FOOTPRINT_TOKEN" \
@@ -43,7 +43,7 @@ curl 'http://localhost:8080/api/locations?device=example-device' \
 
 ## 连接已有 PostgreSQL
 
-在 `config.toml` 中设置外部数据库的 `database_url`, 如 `postgres://user:password@database.example:5432/footprint?sslmode=require`, 然后挂载该文件:
+在 `config.toml` 中设置外部数据库的 `server.database_url`, 如 `postgres://user:password@database.example:5432/footprint?sslmode=require`, 然后挂载该文件:
 
 ```bash
 docker build -t footprint-serverful:local .
@@ -53,13 +53,15 @@ docker run -d --name footprint-serverful \
   footprint-serverful:local
 ```
 
-`database_url` 支持 pgx 连接参数. URL 中的用户名和密码包含保留字符时需要 URL 编码.
+`server.database_url` 支持 pgx 连接参数. URL 中的用户名和密码包含保留字符时需要 URL 编码.
 
 | 配置 | 用途 |
 | --- | --- |
-| `database_url` | 必填, PostgreSQL 连接地址 |
-| `ingest_token` | 必填, 全部业务接口使用的 Bearer Token, 不含空白 |
-| `http_addr` | Go 服务监听地址, 默认 `:8080` |
+| `[server] addr` | Go 服务监听地址, 默认 `:8080` |
+| `[server] database_url` | 必填, PostgreSQL 连接地址 |
+| `[server] ingest_token` | 必填, 全部业务接口使用的 Bearer Token, 不含空白 |
+| `[mapbox] public_token` | 可选, 前端地图使用的 `pk.` 公开 Token, 未配置时不加载地图 |
+| `[mapbox] style` | 地图样式, 默认 `mapbox://styles/mapbox/light-v11` |
 
 Go 服务默认读取当前目录的 `config.toml`, 可通过 `-config /path/to/config.toml` 指定其他文件. 实际配置文件不进入 Git 或 Docker 构建上下文, 只提交不含凭据的 `config.example.toml`. Docker 健康检查也读取挂载的 TOML, 使用其中的监听地址访问 `/health`.
 
@@ -75,7 +77,7 @@ make build
 cp config.example.toml config.toml
 ```
 
-在 `config.toml` 中填写 Token, 并把 `database_url` 改为本机数据库地址, 例如 `postgres://footprint:password@localhost:5432/footprint?sslmode=disable`, 然后启动:
+在 `config.toml` 中填写 `server.ingest_token`, 并把 `server.database_url` 改为本机数据库地址, 例如 `postgres://footprint:password@localhost:5432/footprint?sslmode=disable`, 然后启动:
 
 ```bash
 ./bin/footprint
@@ -135,6 +137,16 @@ docker stop footprint-serverful-test
 
 ## 前端接入
 
-后端提供与 `footprint-serverless` 当前 `/api/*` 相同的业务协议. 原 Console Worker 使用 Cloudflare Service Binding, 需要另行将其服务端代理改为访问本服务的 HTTP 地址. 独立前端在 Serverful 模式下透传客户端认证凭据, 不配置或注入共享 API Token. 本服务仍要求客户端提供合法的 `Authorization: Bearer <ingest_token>`, 未认证请求返回 `401`. `/api/console-config` 和 Cloudflare Access 登录属于控制台, 不由本服务提供.
+后端提供与 `footprint-serverless` 当前 `/api/*` 相同的业务协议. 原 Console Worker 使用 Cloudflare Service Binding, 需要另行将其服务端代理改为访问本服务的 HTTP 地址. 独立前端页面可直接打开, 在右上角设置中输入 `[server] ingest_token` 后, 浏览器为业务请求添加 `Authorization: Bearer <token>`, 代理透传凭据交由后端校验. 未认证请求返回 `401`.
+
+地图配置由本服务的 `GET /api/console-config` 提供, 无需认证. 在 `config.toml` 中填写:
+
+```toml
+[mapbox]
+public_token = "pk.your-public-token"
+style = "mapbox://styles/mapbox/light-v11"
+```
+
+只有 `pk.` 开头的公开 Mapbox Token 可以配置并返回给浏览器; 留空时仍可使用后端 API. 该接口仅返回地图公开配置, 不返回业务 Token 或数据库信息. 独立前端使用 `API_BACKEND=serverful` 时会把配置请求转发给 Go. 配置在服务启动时加载, 修改后重启即可, 无需重新构建前端. 后续嵌入前端静态资源时可以继续使用同一接口.
 
 详细接口见 [API 文档](docs/api.md), 检测规则与限制见 [轨迹质量检测](docs/trajectory.md).

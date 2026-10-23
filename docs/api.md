@@ -1,10 +1,11 @@
 # API
 
-除 `GET /health` 外, 所有 `/api/*` 接口要求 `Authorization: Bearer <ingest_token>`, Token 配置在 `config.toml` 中. 错误凭据返回 `401`. 全部响应使用 JSON 和 `Cache-Control: no-store`.
+`GET /health` 和 `GET /api/console-config` 可公开访问. 其他 `/api/*` 接口要求 `Authorization: Bearer <ingest_token>`, Token 配置在 `config.toml` 的 `[server] ingest_token` 中. 错误凭据返回 `401`. 全部响应使用 JSON 和 `Cache-Control: no-store`.
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | GET | `/health` | 存活检查, 不查询数据库 |
+| GET | `/api/console-config` | 公开的地图配置, 不查询数据库 |
 | GET | `/api/me` | 校验 Token |
 | PUT | `/api/location` | 上报一个位置 |
 | GET | `/api/location` | 查询观测时间最新的位置 |
@@ -13,6 +14,20 @@
 | POST | `/api/projects` | 创建项目 |
 | GET | `/api/projects/:name` | 按名称查询项目 |
 | PATCH | `/api/projects/:id` | 按 ID 修改项目 |
+
+## 地图配置
+
+`GET /api/console-config` 从服务启动时读取的 `config.toml` 返回地图公开配置, 无需认证:
+
+```json
+{
+  "mapboxToken": "pk.your-public-token",
+  "mapboxStyle": "mapbox://styles/mapbox/light-v11",
+  "localPreview": false
+}
+```
+
+`mapboxToken` 对应 `[mapbox] public_token`, 未配置时为空字符串. `mapboxStyle` 对应 `[mapbox] style`, 默认使用 `mapbox://styles/mapbox/light-v11`. 该接口不返回 `server.ingest_token` 或数据库连接信息. 修改配置后重启 Go 服务即可生效.
 
 ## 位置上报
 

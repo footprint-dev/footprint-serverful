@@ -3,12 +3,17 @@ package api
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"footprint-serverful/internal/config"
 )
 
 func TestRoutingAndAuthentication(t *testing.T) {
-	e := New(nil, "test-token")
+	e := New(nil, config.Config{Server: config.Server{IngestToken: "test-token"}})
 	for _, tc := range []struct {
 		method, path, authorization string
 		status                      int
@@ -18,6 +23,7 @@ func TestRoutingAndAuthentication(t *testing.T) {
 		{"GET", "/api/me", "Bearer test-token", 200, ""},
 		{"GET", "/api/me", "bearer test-token", 200, ""},
 		{"GET", "/api/me", "", 401, "unauthorized"},
+		{"GET", "/api/console-config/extra", "", 401, "unauthorized"},
 		{"GET", "/api/me", "Bearer wrong", 401, "unauthorized"},
 		{"GET", "/api/me", "Bearer test-token extra", 401, "unauthorized"},
 		{"POST", "/api/location", "Bearer test-token", 405, "method_not_allowed"},
@@ -49,8 +55,42 @@ func TestRoutingAndAuthentication(t *testing.T) {
 		})
 	}
 	w := httptest.NewRecorder()
-	New(nil, "").ServeHTTP(w, httptest.NewRequest("GET", "/api/me", nil))
+	New(nil, config.Config{}).ServeHTTP(w, httptest.NewRequest("GET", "/api/me", nil))
 	if w.Code != 503 {
 		t.Fatalf("unconfigured authentication: %d", w.Code)
+	}
+}
+
+func TestConsoleConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name, settings, token, style string
+	}{
+		{"unconfigured map", "", "", "mapbox://styles/mapbox/light-v11"},
+		{"configured map", "[mapbox]\npublic_token = 'pk.public'\nstyle = 'mapbox://styles/example/custom'", "pk.public", "mapbox://styles/example/custom"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			content := "[server]\ndatabase_url = 'postgres://user:private-password@localhost/footprint'\ningest_token = 'private-token'\n" + tc.settings
+			if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			New(nil, cfg).ServeHTTP(response, httptest.NewRequest("GET", "/api/console-config", nil))
+			if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status %d, body %s", response.Code, response.Body.String())
+			}
+			var result map[string]any
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{"mapboxToken": tc.token, "mapboxStyle": tc.style, "localPreview": false}
+			if !reflect.DeepEqual(result, want) {
+				t.Fatalf("unexpected public configuration: %s", response.Body.String())
+			}
+		})
 	}
 }

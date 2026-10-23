@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"footprint-serverful/internal/api"
+	"footprint-serverful/internal/config"
 	"footprint-serverful/internal/model"
 	"footprint-serverful/internal/store"
 )
@@ -62,7 +63,7 @@ func TestHTTPPostgres(t *testing.T) {
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	app := api.New(db, "test-token")
+	app := api.New(db, config.Config{Server: config.Server{IngestToken: "test-token"}})
 	device := fmt.Sprintf("http-%d", time.Now().UnixNano())
 	query := "/api/locations?device=" + url.QueryEscape(device)
 	type latest struct {
