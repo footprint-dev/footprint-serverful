@@ -1,9 +1,6 @@
 services:
   api:
-    build:
-      context: .
-      args:
-        GOPROXY: "${GOPROXY:-https://proxy.golang.org,direct}"
+    image: ghcr.io/footprint-dev/footprint-serverful:latest
     restart: unless-stopped
     volumes:
       - type: bind

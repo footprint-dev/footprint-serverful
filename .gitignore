@@ -3,6 +3,8 @@
 .local/
 bin/
 coverage.out
+/footprint-image.tar.gz
+/internal/web/dist/
 
 # Keep Ent schemas and the generation entry point, not generated code.
 /ent/*

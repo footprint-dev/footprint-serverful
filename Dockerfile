@@ -1,16 +1,18 @@
 FROM golang:1.27.3-alpine3.24 AS build
 ARG GOPROXY=https://proxy.golang.org,direct
+RUN apk add --no-cache make curl
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go generate ./ent && \
+RUN make prepare && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/footprint ./cmd/footprint
 
 FROM alpine:3.24
 RUN apk add --no-cache ca-certificates && \
     addgroup -S footprint && adduser -S -G footprint footprint
 COPY --from=build /out/footprint /usr/local/bin/footprint
+COPY LICENSE /usr/share/licenses/footprint/LICENSE
 USER footprint
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \

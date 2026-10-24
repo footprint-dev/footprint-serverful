@@ -15,6 +15,7 @@ import (
 
 	"footprint-serverful/internal/config"
 	"footprint-serverful/internal/store"
+	"footprint-serverful/internal/web"
 )
 
 type apiError struct {
@@ -75,6 +76,7 @@ func New(db *store.Store, cfg config.Config) *echo.Echo {
 	e.POST("/api/projects", s.createProject)
 	e.GET("/api/projects/:value", s.findProject)
 	e.PATCH("/api/projects/:value", s.updateProject)
+	web.Register(e)
 	return e
 }
 

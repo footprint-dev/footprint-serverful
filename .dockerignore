@@ -4,6 +4,8 @@ postgres_data
 .local
 bin
 coverage.out
+footprint-image.tar.gz
+internal/web/dist
 
 ent/*
 !ent/schema/

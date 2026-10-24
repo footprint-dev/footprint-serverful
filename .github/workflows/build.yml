@@ -1,0 +1,77 @@
+name: Build and publish service
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: footprint
+          POSTGRES_PASSWORD: footprint-test
+          POSTGRES_DB: footprint_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U footprint -d footprint_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://footprint:footprint-test@127.0.0.1:5432/footprint_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make test
+      - name: Build service image
+        env:
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+          REVISION: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 --tag footprint:build \
+            --label "org.opencontainers.image.source=$SOURCE_URL" \
+            --label "org.opencontainers.image.revision=$REVISION" .
+      - name: Export service image
+        if: startsWith(github.ref, 'refs/tags/')
+        run: docker save footprint:build | gzip > footprint-image.tar.gz
+      - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: service-image
+          path: footprint-image.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: service-image
+      - name: Publish service image to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker load --input footprint-image.tar.gz
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag footprint:build "$image:$RELEASE_TAG"
+          docker tag footprint:build "$image:latest"
+          docker push "$image:$RELEASE_TAG"
+          docker push "$image:latest"
