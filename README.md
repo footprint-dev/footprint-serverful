@@ -1,154 +1,137 @@
 # Footprint Serverful
 
-使用 Go 1.27、Echo v5、Ent 和 PostgreSQL 18 实现的个人足迹后端. 提供位置上报、轨迹查询、项目管理及实时轨迹质量标注.
+自托管的个人足迹应用, 在自己的地图上记录和回看每次出行.
 
-服务通过 Go embed 提供前端页面和 API, 运行时无需 Node.js 或单独的静态资源目录. 前端源码在独立仓库维护, 构建时下载固定版本的 Release 压缩包. 原始位置始终保留, 轨迹分析只更新独立的质量标记.
+接收设备上报的位置, 在地图和列表中查看历史轨迹, 用项目整理旅行或日常通勤. 数据保存在你自己的 PostgreSQL 中, 网页和 API 随服务一起提供, 使用 Docker Compose 即可部署.
 
-## Docker 部署
+[快速开始](#快速开始) | [接入位置上报](#接入位置上报) | [API 文档](docs/api.md)
 
-需要 Docker 和 Docker Compose.
+## 功能
 
-Compose 中的 `footprint` 服务提供页面和 API, 使用 `ghcr.io/footprint-dev/footprint-serverful:latest` 镜像, 无需在部署机器上构建代码. 该镜像需要先由后端的发布 workflow 发布到 GHCR.
+- **回看足迹**. 在地图上查看轨迹, 按日期或项目筛选, 查看每个位置的时间和设备.
+- **整理行程**. 为一次旅行或一段通勤创建项目, 用起止时间保存对应的行程范围.
+- **过滤异常点**. 自动标记疑似定位跳变, 支持切换原始轨迹. 检测属于实验性功能, 原始位置始终保留.
+- **接入自己的设备**. 通过 HTTP API 上报 JSON 或表单数据, 按设备和时间查询历史位置.
+- **自行托管**. 应用与数据库通过 Docker Compose 一起启动, 无需单独部署前端.
 
-```bash
-cp config.example.toml config.toml
-openssl rand -hex 32
-openssl rand -hex 32
+## 快速开始
+
+需要 Docker 和 Docker Compose. 网页地图还需要一个 [Mapbox 公开 Token](https://docs.mapbox.com/help/dive-deeper/access-tokens/), 仅使用 API 时可以不配置地图.
+
+### 1. 保存 Compose 模板
+
+创建一个部署目录, 将以下内容保存为 `compose.yaml`:
+
+```yaml
+services:
+  footprint:
+    image: ghcr.io/footprint-dev/footprint-serverful:latest
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./config.toml
+        target: /etc/footprint/config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    stop_grace_period: 15s
+
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: footprint
+      POSTGRES_PASSWORD: footprint
+      POSTGRES_DB: footprint
+    volumes:
+      - ./postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U footprint -d footprint"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 ```
 
-在 `config.toml` 中填写数据库连接地址 `server.database_url` 的密码和 `server.ingest_token`. Docker 内的数据库主机名使用 `db`. PostgreSQL 官方镜像的初始化密码通过启动参数提供, 与 `server.database_url` 中的密码保持一致:
+### 2. 保存应用配置
 
-```bash
-export POSTGRES_PASSWORD='填写 config.toml 中的数据库密码'
-docker compose pull
-docker compose up -d
-docker compose ps
-curl http://localhost:8080/health
-```
-
-打开 `http://localhost:8080/` 即可访问页面, 在右上角设置中输入 `[server] ingest_token` 后加载业务数据.
-
-Compose 将当前目录的 `config.toml` 只读挂载到容器内的 `/etc/footprint/config.toml`, 将 `./postgres_data` 挂载到 PostgreSQL 的 `/var/lib/postgresql`. 默认服务端口为 `8080`, 修改监听端口时同时调整 TOML 的 `server.addr` 和 Compose 的端口映射. PostgreSQL 仅通过 Compose 内部网络访问, 数据保存在当前目录的 `postgres_data/` 中. `footprint` 等待数据库健康后启动, 启动时由 Ent 自动创建表, 外键和索引.
-
-升级时执行 `docker compose pull` 和 `docker compose up -d`, 拉取并使用最新发布的镜像.
-
-```bash
-export FOOTPRINT_TOKEN='填写 config.toml 中的 server.ingest_token'
-
-curl -X PUT http://localhost:8080/api/location \
-  -H "Authorization: Bearer $FOOTPRINT_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"longitude":0,"latitude":0,"datetime":"2024-01-01T00:00:00Z","timezone":0,"device":"example-device"}'
-
-curl 'http://localhost:8080/api/locations?device=example-device' \
-  -H "Authorization: Bearer $FOOTPRINT_TOKEN"
-```
-
-`docker compose down` 停止服务, 数据仍保留在 `postgres_data/` 中. 删除该目录会删除数据库数据. 配置文件和数据库目录均已从 Git 和 Docker 构建上下文中排除. 服务对外使用 HTTP, 公网部署时由反向代理提供 HTTPS.
-
-## 连接已有 PostgreSQL
-
-在 `config.toml` 中设置外部数据库的 `server.database_url`, 如 `postgres://user:password@database.example:5432/footprint?sslmode=require`, 然后挂载该文件:
-
-```bash
-docker pull ghcr.io/footprint-dev/footprint-serverful:latest
-docker run -d --name footprint-serverful \
-  -p 8080:8080 \
-  --mount type=bind,src="$(pwd)/config.toml",dst=/etc/footprint/config.toml,readonly \
-  ghcr.io/footprint-dev/footprint-serverful:latest
-```
-
-`server.database_url` 支持 pgx 连接参数. URL 中的用户名和密码包含保留字符时需要 URL 编码.
-
-| 配置 | 用途 |
-| --- | --- |
-| `[server] addr` | Go 服务监听地址, 默认 `:8080` |
-| `[server] database_url` | 必填, PostgreSQL 连接地址 |
-| `[server] ingest_token` | 必填, 全部业务接口使用的 Bearer Token, 不含空白 |
-| `[mapbox] public_token` | 可选, 前端地图使用的 `pk.` 公开 Token, 未配置时不加载地图 |
-| `[mapbox] style` | 地图样式, 默认 `mapbox://styles/mapbox/light-v11` |
-
-Go 服务默认读取当前目录的 `config.toml`, 可通过 `-config /path/to/config.toml` 指定其他文件. 实际配置文件不进入 Git 或 Docker 构建上下文, 只提交不含凭据的 `config.example.toml`. Docker 健康检查也读取挂载的 TOML, 使用其中的监听地址访问 `/health`.
-
-数据库账号需要建表和更新结构的权限. 默认部署一个 API 实例; 本项目没有多实例同时初始化数据库的协调机制. 自动初始化失败时 API 退出, 不开始接收请求.
-
-## 本地开发
-
-需要 Go 1.27.3+, Make, curl, tar 和 PostgreSQL 18. 后端构建不需要 Node.js 或 pnpm.
-
-```bash
-go mod download
-make build
-cp config.example.toml config.toml
-```
-
-在 `config.toml` 中填写 `server.ingest_token`, 并把 `server.database_url` 改为本机数据库地址, 例如 `postgres://footprint:password@localhost:5432/footprint?sslmode=disable`, 然后启动:
-
-```bash
-./bin/footprint
-```
-
-`make prepare` 下载前端 Release, 解压到 `internal/web/dist`, 并生成 Ent 代码. `make build` 自动执行准备步骤后编译服务; Docker 构建复用相同步骤. 下载或解压失败会停止构建. 单独刷新 Ent 代码可以执行:
-
-```bash
-go generate ./ent
-```
-
-本地调试时, 使用已有的前端产物和 Ent 生成代码, 只编译二进制:
-
-```bash
-make debug
-./bin/footprint
-```
-
-`make debug` 不下载前端, 也不生成 Ent 代码. 需要本地已存在 `internal/web/dist` 和 Ent 生成代码; 修改 Ent Schema 后先执行 `make generate`.
-
-自行构建镜像可执行 `docker build -t footprint-serverful:local .`. 构建环境无法访问默认 Go 模块代理时, 增加 `--build-arg GOPROXY=https://goproxy.cn,direct`. 此参数只影响构建阶段.
-
-Ent 目录只提交 `ent/schema/` 下的手写模型和 `ent/generate.go` 生成入口. 其余生成代码由 `.gitignore` 和 `.dockerignore` 排除, 不进入 Git 或 Docker 构建上下文. 生成工具与运行库版本由 `go.mod` 和 `go.sum` 固定. 数据访问使用 Ent, 不手写 SQL.
-
-## 测试
-
-不连接数据库的测试:
-
-```bash
-make test
-```
-
-未设置 `TEST_DATABASE_URL` 时, PostgreSQL 集成测试会明确跳过. 完整验证需要专用的临时数据库:
-
-```bash
-docker run -d --rm --name footprint-serverful-test \
-  -e POSTGRES_USER=footprint \
-  -e POSTGRES_PASSWORD=footprint-test \
-  -e POSTGRES_DB=footprint_test \
-  -p 127.0.0.1:55432:5432 \
-  postgres:18-alpine
-
-docker exec footprint-serverful-test pg_isready -U footprint -d footprint_test
-
-TEST_DATABASE_URL='postgres://footprint:footprint-test@127.0.0.1:55432/footprint_test?sslmode=disable' \
-  make test
-
-docker stop footprint-serverful-test
-```
-
-集成测试会清理所连接数据库中的位置、质量标记、项目及设备版本记录. 只能使用专用测试数据库. 测试覆盖真实 PostgreSQL 事务、并发上报、故障降级、历史匹配、HTTP 协议与自动建表.
-
-## 前端接入
-
-后端提供与 `footprint-serverless` 当前 `/api/*` 相同的业务协议.
-
-地图配置由本服务的 `GET /api/console-config` 提供, 需要与其他业务接口相同的 Bearer Token. 页面在用户输入有效 Token 后才请求地图配置. 在 `config.toml` 中填写:
+在同一目录创建 `config.toml`:
 
 ```toml
+[server]
+addr = ":8080"
+database_url = "postgres://footprint:footprint@db:5432/footprint?sslmode=disable"
+ingest_token = "REPLACE_WITH_YOUR_TOKEN"
+
 [mapbox]
-public_token = "pk.your-public-token"
+public_token = ""
 style = "mapbox://styles/mapbox/light-v11"
 ```
 
-只有 `pk.` 开头的公开 Mapbox Token 可以配置并返回给通过认证的浏览器; 留空时仍可使用后端 API. 该接口仅返回地图配置, 不返回业务 Token 或数据库信息. 内嵌页面直接请求同源 API; 独立开发前端使用 `API_BACKEND=serverful` 时会把请求和认证头转发给 Go. 地图配置在服务启动时加载, 修改后重启即可, 无需重新构建前端.
+填写以下两项, 其余配置可保持默认:
+
+| 配置项 | 填写内容 |
+| --- | --- |
+| `server.ingest_token` | 将 `REPLACE_WITH_YOUR_TOKEN` 替换为访问 Token, 可用 `openssl rand -hex 32` 生成; 网页和上报设备都使用它 |
+| `mapbox.public_token` | 以 `pk.` 开头的 Mapbox 公开 Token; 留空时不加载地图 |
+
+### 3. 启动服务
+
+在部署目录中执行:
+
+```bash
+docker compose up -d --wait
+```
+
+应用会等待数据库就绪并自动创建所需的表.
+
+### 4. 打开网页
+
+访问 <http://localhost:8080>, 在右上角设置中输入 `server.ingest_token`. 部署在远程服务器时, 将 `localhost` 换成服务器地址.
+
+首次使用还没有足迹数据, 可以先按下一节上报一个位置, 再刷新网页查看. 服务使用一个共享 Token 访问全部业务数据, 无需注册账号.
+
+## 接入位置上报
+
+在设备端或脚本中向 `PUT /api/location` 发送坐标和观测时间, 并通过 `Authorization: Bearer <Token>` 请求头携带访问 Token.
+
+下面的示例会以当前时间写入一个演示坐标. 将 `FOOTPRINT_TOKEN` 的值替换为 `config.toml` 中的 `server.ingest_token`:
+
+```bash
+export FOOTPRINT_TOKEN='replace-with-your-ingest-token'
+
+curl --fail-with-body -X PUT http://localhost:8080/api/location \
+  -H "Authorization: Bearer $FOOTPRINT_TOKEN" \
+  --data-urlencode 'longitude=121.4737' \
+  --data-urlencode 'latitude=31.2304' \
+  --data-urlencode "datetime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --data-urlencode 'timezone=8' \
+  --data-urlencode 'device=example-device'
+```
+
+成功时返回 HTTP `201` 和包含 `location` 的 JSON. 查询这个设备上报的位置:
+
+```bash
+curl --fail-with-body 'http://localhost:8080/api/locations?device=example-device' \
+  -H "Authorization: Bearer $FOOTPRINT_TOKEN"
+```
+
+正式接入时, 使用设备实际采集的 WGS84 经纬度, 观测时间和设备标识. 完整的上报字段, 查询参数和响应格式见 [API 文档](docs/api.md). 每次上报都会新增记录, 重复发送同一个点不会自动去重.
+
+## 文档与反馈
+
+| 我想要 | 查看 |
+| --- | --- |
+| 接入设备或编写脚本 | [API 文档](docs/api.md) |
+| 了解异常点如何判定 | [轨迹质量检测](docs/trajectory.md) |
+| 从源码构建或参与开发 | [开发指南](docs/development.md) |
+| 修改网页界面 | [前端仓库](https://github.com/footprint-dev/footprint-frontend) |
+| 报告问题或提出建议 | [GitHub Issues](https://github.com/footprint-dev/footprint-serverful/issues) |
 
 ## 许可证
 
-本项目采用 [GNU Affero General Public License v3.0](LICENSE), SPDX 标识为 `AGPL-3.0-only`.
+[GNU Affero General Public License v3.0](LICENSE), SPDX 标识为 `AGPL-3.0-only`.

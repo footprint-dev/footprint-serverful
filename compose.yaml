@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: footprint
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to match config.toml}"
+      POSTGRES_PASSWORD: footprint
       POSTGRES_DB: footprint
     volumes:
       - ./postgres_data:/var/lib/postgresql
