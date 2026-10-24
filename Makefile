@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := build
 
-FRONTEND_VERSION := v0.1.0
+FRONTEND_VERSION := v1.0.0
 FRONTEND_URL := https://github.com/footprint-dev/footprint-frontend/releases/download/$(FRONTEND_VERSION)/footprint-frontend.tar.gz
 
 .PHONY: prepare frontend generate build test

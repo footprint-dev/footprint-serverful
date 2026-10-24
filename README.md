@@ -157,15 +157,13 @@ style = "mapbox://styles/mapbox/light-v11"
 
 ## 前端版本与镜像发布
 
-前端仓库推送 `vX.Y.Z` 标签后, GitHub Actions 执行测试和构建, 并发布包含 `footprint-frontend.tar.gz` 的 Release. 本仓库在 `Makefile` 中固定 `FRONTEND_VERSION`; 升级前端时修改此版本号并重新构建. 压缩包包含 `dist/` 和外层的 `LICENSE`, Go 只嵌入 `dist/` 中的静态资源. 许可证位于最终镜像的 `/usr/share/licenses/footprint/LICENSE`, 不作为页面资源提供.
-
-第一次接入时先提交并推送前端的发布 workflow 和相对路径修改, 发布前端 `v0.1.0`, 再构建后端. 在 Release 发布前进行本地联调, 可将本地同格式压缩包的地址传给 Make:
+前端仓库推送 `vX.Y.Z` 标签后, workflow 执行测试和构建, 将 `footprint-frontend.tar.gz` 上传到已有的同名 GitHub Release. workflow 不创建 Release. 等待前端任务完成且附件可下载后, 再构建或发布后端. 本仓库在 `Makefile` 中固定 `FRONTEND_VERSION`; 升级前端时修改此版本号并重新构建. 压缩包包含 `dist/` 和外层的 `LICENSE`, Go 只嵌入 `dist/` 中的静态资源. 许可证位于最终镜像的 `/usr/share/licenses/footprint/LICENSE`, 不作为页面资源提供.
 
 ```bash
 make build FRONTEND_URL=file:///absolute/path/footprint-frontend.tar.gz
 ```
 
-两个仓库的 workflow 仅由 `v*` 标签推送或 `workflow_dispatch` 手动操作触发. 后端会运行 `make test`, 使用临时 PostgreSQL 18 执行集成测试, 并构建完整 Docker 镜像. 对 `vX.Y.Z` 标签执行时, 测试与构建成功后同时发布 `ghcr.io/<当前GitHub仓库>:<版本标签>` 和 `ghcr.io/<当前GitHub仓库>:latest`, 平台为 `linux/amd64`. 手动对分支执行时只测试和构建. 发布使用 GitHub 内置 Token; 需要仓库允许 Actions 发布 Release 和 Packages. 不自动更新运行中的服务.
+两个仓库的 workflow 均由 `v*` 标签推送或 `workflow_dispatch` 手动操作触发. 后端会运行 `make test`, 使用临时 PostgreSQL 18 执行集成测试, 并构建完整 Docker 镜像. 对 `vX.Y.Z` 标签执行时, 测试与构建成功才同时发布 `ghcr.io/<当前GitHub仓库>:<版本标签>` 和 `ghcr.io/<当前GitHub仓库>:latest`, 平台为 `linux/amd64`. 手动对分支执行时只测试和构建. 后端只发布镜像, 不创建 GitHub Release. 发布使用 GitHub 内置 Token; 需要仓库允许 Actions 更新 Release 附件和发布 Packages. 不自动更新运行中的服务.
 
 已有 PostgreSQL 时, 可以直接使用发布的镜像:
 
