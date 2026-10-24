@@ -1,11 +1,11 @@
 # API
 
-`GET /health` 和 `GET /api/console-config` 可公开访问. 其他 `/api/*` 接口要求 `Authorization: Bearer <ingest_token>`, Token 配置在 `config.toml` 的 `[server] ingest_token` 中. 错误凭据返回 `401`. 全部响应使用 JSON 和 `Cache-Control: no-store`.
+`GET /health` 可公开访问. 所有 `/api/*` 接口均要求 `Authorization: Bearer <ingest_token>`, 包括地图配置接口. Token 配置在 `config.toml` 的 `[server] ingest_token` 中. 缺少或错误凭据返回 `401`. 全部响应使用 JSON 和 `Cache-Control: no-store`.
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | GET | `/health` | 存活检查, 不查询数据库 |
-| GET | `/api/console-config` | 公开的地图配置, 不查询数据库 |
+| GET | `/api/console-config` | 认证后获取地图配置, 不查询数据库 |
 | GET | `/api/me` | 校验 Token |
 | PUT | `/api/location` | 上报一个位置 |
 | GET | `/api/location` | 查询观测时间最新的位置 |
@@ -17,7 +17,7 @@
 
 ## 地图配置
 
-`GET /api/console-config` 从服务启动时读取的 `config.toml` 返回地图公开配置, 无需认证:
+`GET /api/console-config` 在 Bearer Token 校验通过后, 从服务启动时读取的 `config.toml` 返回地图配置:
 
 ```json
 {

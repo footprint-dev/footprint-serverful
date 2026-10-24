@@ -6,6 +6,6 @@ database_url = "postgres://footprint:CHANGE_ME@db:5432/footprint?sslmode=disable
 ingest_token = ""
 
 [mapbox]
-# Public map configuration returned to the browser. Leave the token empty for API-only use.
+# Public Mapbox token returned after API authentication. Leave empty for API-only use.
 public_token = ""
 style = "mapbox://styles/mapbox/light-v11"

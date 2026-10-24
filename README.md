@@ -8,7 +8,7 @@
 
 需要 Docker 和 Docker Compose.
 
-Compose 使用 `ghcr.io/footprint-dev/footprint-serverful:latest` 镜像, 无需在部署机器上构建代码. 该镜像需要先由后端的发布 workflow 发布到 GHCR.
+Compose 中的 `footprint` 服务提供页面和 API, 使用 `ghcr.io/footprint-dev/footprint-serverful:latest` 镜像, 无需在部署机器上构建代码. 该镜像需要先由后端的发布 workflow 发布到 GHCR.
 
 ```bash
 cp config.example.toml config.toml
@@ -28,7 +28,7 @@ curl http://localhost:8080/health
 
 打开 `http://localhost:8080/` 即可访问页面, 在右上角设置中输入 `[server] ingest_token` 后加载业务数据.
 
-Compose 将当前目录的 `config.toml` 只读挂载到容器内的 `/etc/footprint/config.toml`, 将 `./postgres_data` 挂载到 PostgreSQL 的 `/var/lib/postgresql`. 默认 API 端口为 `8080`, 修改监听端口时同时调整 TOML 的 `server.addr` 和 Compose 的端口映射. PostgreSQL 仅通过 Compose 内部网络访问, 数据保存在当前目录的 `postgres_data/` 中. API 等待数据库健康后启动, 启动时由 Ent 自动创建表、外键和索引.
+Compose 将当前目录的 `config.toml` 只读挂载到容器内的 `/etc/footprint/config.toml`, 将 `./postgres_data` 挂载到 PostgreSQL 的 `/var/lib/postgresql`. 默认服务端口为 `8080`, 修改监听端口时同时调整 TOML 的 `server.addr` 和 Compose 的端口映射. PostgreSQL 仅通过 Compose 内部网络访问, 数据保存在当前目录的 `postgres_data/` 中. `footprint` 等待数据库健康后启动, 启动时由 Ent 自动创建表, 外键和索引.
 
 升级时执行 `docker compose pull` 和 `docker compose up -d`, 拉取并使用最新发布的镜像.
 
@@ -94,24 +94,18 @@ cp config.example.toml config.toml
 go generate ./ent
 ```
 
+本地调试时, 使用已有的前端产物和 Ent 生成代码, 只编译二进制:
+
+```bash
+make debug
+./bin/footprint
+```
+
+`make debug` 不下载前端, 也不生成 Ent 代码. 需要本地已存在 `internal/web/dist` 和 Ent 生成代码; 修改 Ent Schema 后先执行 `make generate`.
+
 自行构建镜像可执行 `docker build -t footprint-serverful:local .`. 构建环境无法访问默认 Go 模块代理时, 增加 `--build-arg GOPROXY=https://goproxy.cn,direct`. 此参数只影响构建阶段.
 
 Ent 目录只提交 `ent/schema/` 下的手写模型和 `ent/generate.go` 生成入口. 其余生成代码由 `.gitignore` 和 `.dockerignore` 排除, 不进入 Git 或 Docker 构建上下文. 生成工具与运行库版本由 `go.mod` 和 `go.sum` 固定. 数据访问使用 Ent, 不手写 SQL.
-
-```text
-cmd/footprint/        启动、配置和优雅退出
-ent/schema/          手写 Ent Schema
-ent/generate.go      手写代码生成入口
-ent/                 本地或构建时生成的数据访问代码, 不提交
-internal/config/     TOML 配置读取与校验
-internal/api/        Echo 接口、鉴权、解析和错误响应
-internal/model/      API 数据结构
-internal/store/      Ent 查询、事务和质量标注流程
-internal/trajectory/ 独立的轨迹检测算法
-internal/web/        内嵌前端资源和静态文件路由
-scripts/             构建准备脚本
-docs/                API 与检测行为说明
-```
 
 ## 测试
 
@@ -143,9 +137,9 @@ docker stop footprint-serverful-test
 
 ## 前端接入
 
-后端提供与 `footprint-serverless` 当前 `/api/*` 相同的业务协议. 原 Console Worker 使用 Cloudflare Service Binding, 需要另行将其服务端代理改为访问本服务的 HTTP 地址. 独立前端页面可直接打开, 在右上角设置中输入 `[server] ingest_token` 后, 浏览器为业务请求添加 `Authorization: Bearer <token>`, 代理透传凭据交由后端校验. 未认证请求返回 `401`.
+后端提供与 `footprint-serverless` 当前 `/api/*` 相同的业务协议.
 
-地图配置由本服务的 `GET /api/console-config` 提供, 无需认证. 在 `config.toml` 中填写:
+地图配置由本服务的 `GET /api/console-config` 提供, 需要与其他业务接口相同的 Bearer Token. 页面在用户输入有效 Token 后才请求地图配置. 在 `config.toml` 中填写:
 
 ```toml
 [mapbox]
@@ -153,48 +147,7 @@ public_token = "pk.your-public-token"
 style = "mapbox://styles/mapbox/light-v11"
 ```
 
-只有 `pk.` 开头的公开 Mapbox Token 可以配置并返回给浏览器; 留空时仍可使用后端 API. 该接口仅返回地图公开配置, 不返回业务 Token 或数据库信息. 内嵌页面直接请求同源 API; 独立开发前端使用 `API_BACKEND=serverful` 时会把请求转发给 Go. 地图配置在服务启动时加载, 修改后重启即可, 无需重新构建前端.
-
-## 前端版本与镜像发布
-
-前端仓库推送 `vX.Y.Z` 标签后, workflow 执行测试和构建, 将 `footprint-frontend.tar.gz` 上传到已有的同名 GitHub Release. workflow 不创建 Release. 等待前端任务完成且附件可下载后, 再构建或发布后端. 本仓库在 `Makefile` 中固定 `FRONTEND_VERSION`; 升级前端时修改此版本号并重新构建. 压缩包包含 `dist/` 和外层的 `LICENSE`, Go 只嵌入 `dist/` 中的静态资源. 许可证位于最终镜像的 `/usr/share/licenses/footprint/LICENSE`, 不作为页面资源提供.
-
-```bash
-make build FRONTEND_URL=file:///absolute/path/footprint-frontend.tar.gz
-```
-
-两个仓库的 workflow 均由 `v*` 标签推送或 `workflow_dispatch` 手动操作触发. 后端会运行 `make test`, 使用临时 PostgreSQL 18 执行集成测试, 并构建完整 Docker 镜像. 对 `vX.Y.Z` 标签执行时, 测试与构建成功才同时发布 `ghcr.io/<当前GitHub仓库>:<版本标签>` 和 `ghcr.io/<当前GitHub仓库>:latest`, 平台为 `linux/amd64`. 手动对分支执行时只测试和构建. 后端只发布镜像, 不创建 GitHub Release. 发布使用 GitHub 内置 Token; 需要仓库允许 Actions 更新 Release 附件和发布 Packages. 不自动更新运行中的服务.
-
-已有 PostgreSQL 时, 可以直接使用发布的镜像:
-
-```bash
-docker run -d --name footprint-serverful \
-  -p 8080:8080 \
-  --mount type=bind,src="$(pwd)/config.toml",dst=/etc/footprint/config.toml,readonly \
-  ghcr.io/footprint-dev/footprint-serverful:latest
-```
-
-若使用其他 GitHub 仓库发布, 将部署命令和 Compose 中的镜像路径替换为该仓库的全小写路径. `config.toml` 中的数据库地址必须能从容器内访问. GHCR 包的可见性由仓库所有者设置; 私有镜像需要先登录再拉取.
-
-## 子路径部署
-
-同一份前端产物可部署在 `/` 或 `/xxxx/`. 前端资源和 API 使用相对地址; 反向代理负责去掉 `/xxxx` 前缀, Go 保持根路径路由. Nginx 示例:
-
-```nginx
-location = /xxxx {
-    return 308 /xxxx/$is_args$args;
-}
-
-location /xxxx/ {
-    proxy_pass http://127.0.0.1:8080/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
-
-`proxy_pass` 地址末尾的 `/` 用于移除路径前缀. 页面入口需保留尾斜杠, 例如 `/xxxx/`, 这样 `./api/me` 才会解析为 `/xxxx/api/me`. 静态资源支持 GET/HEAD; 首页使用重新验证缓存, 带哈希的资源长期缓存. 未知路径返回 `404`, 不回退为前端页面.
-
-详细接口见 [API 文档](docs/api.md), 检测规则与限制见 [轨迹质量检测](docs/trajectory.md).
+只有 `pk.` 开头的公开 Mapbox Token 可以配置并返回给通过认证的浏览器; 留空时仍可使用后端 API. 该接口仅返回地图配置, 不返回业务 Token 或数据库信息. 内嵌页面直接请求同源 API; 独立开发前端使用 `API_BACKEND=serverful` 时会把请求和认证头转发给 Go. 地图配置在服务启动时加载, 修改后重启即可, 无需重新构建前端.
 
 ## 许可证
 

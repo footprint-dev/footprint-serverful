@@ -1,9 +1,9 @@
 .DEFAULT_GOAL := build
 
-FRONTEND_VERSION := v1.0.0
+FRONTEND_VERSION := v1.0.1
 FRONTEND_URL := https://github.com/footprint-dev/footprint-frontend/releases/download/$(FRONTEND_VERSION)/footprint-frontend.tar.gz
 
-.PHONY: prepare frontend generate build test
+.PHONY: prepare frontend generate build debug test
 
 prepare: frontend generate
 
@@ -14,6 +14,9 @@ generate:
 	go generate ./ent
 
 build: prepare
+	go build -o bin/footprint ./cmd/footprint
+
+debug:
 	go build -o bin/footprint ./cmd/footprint
 
 test: prepare

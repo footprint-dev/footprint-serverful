@@ -13,7 +13,10 @@ import (
 )
 
 func TestRoutingAndAuthentication(t *testing.T) {
-	e := New(nil, config.Config{Server: config.Server{IngestToken: "test-token"}})
+	e := New(nil, config.Config{
+		Server: config.Server{IngestToken: "test-token"},
+		Mapbox: config.Mapbox{PublicToken: "pk.test"},
+	})
 	for _, tc := range []struct {
 		method, path, authorization string
 		status                      int
@@ -23,7 +26,8 @@ func TestRoutingAndAuthentication(t *testing.T) {
 		{"GET", "/api/me", "Bearer test-token", 200, ""},
 		{"GET", "/api/me", "bearer test-token", 200, ""},
 		{"GET", "/api/me", "", 401, "unauthorized"},
-		{"GET", "/api/console-config/extra", "", 401, "unauthorized"},
+		{"GET", "/api/console-config", "", 401, "unauthorized"},
+		{"GET", "/api/console-config", "Bearer wrong", 401, "unauthorized"},
 		{"GET", "/api/me", "Bearer wrong", 401, "unauthorized"},
 		{"GET", "/api/me", "Bearer test-token extra", 401, "unauthorized"},
 		{"POST", "/api/location", "Bearer test-token", 405, "method_not_allowed"},
@@ -52,6 +56,9 @@ func TestRoutingAndAuthentication(t *testing.T) {
 			if tc.status == 401 && w.Header().Get("WWW-Authenticate") == "" {
 				t.Fatal("missing Bearer challenge")
 			}
+			if tc.status == 401 && strings.Contains(w.Body.String(), "pk.test") {
+				t.Fatal("unauthenticated response disclosed the Mapbox token")
+			}
 		})
 	}
 	w := httptest.NewRecorder()
@@ -79,7 +86,9 @@ func TestConsoleConfig(t *testing.T) {
 				t.Fatal(err)
 			}
 			response := httptest.NewRecorder()
-			New(nil, cfg).ServeHTTP(response, httptest.NewRequest("GET", "/api/console-config", nil))
+			request := httptest.NewRequest("GET", "/api/console-config", nil)
+			request.Header.Set("Authorization", "Bearer private-token")
+			New(nil, cfg).ServeHTTP(response, request)
 			if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" {
 				t.Fatalf("status %d, body %s", response.Code, response.Body.String())
 			}
@@ -89,7 +98,7 @@ func TestConsoleConfig(t *testing.T) {
 			}
 			want := map[string]any{"mapboxToken": tc.token, "mapboxStyle": tc.style, "localPreview": false}
 			if !reflect.DeepEqual(result, want) {
-				t.Fatalf("unexpected public configuration: %s", response.Body.String())
+				t.Fatalf("unexpected map configuration: %s", response.Body.String())
 			}
 		})
 	}

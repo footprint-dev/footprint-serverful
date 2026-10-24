@@ -1,5 +1,5 @@
 services:
-  api:
+  footprint:
     image: ghcr.io/footprint-dev/footprint-serverful:latest
     restart: unless-stopped
     volumes:
