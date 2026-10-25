@@ -77,16 +77,16 @@ func TestHTTPPostgres(t *testing.T) {
 		if empty.Location != nil {
 			t.Fatal("empty latest must be null")
 		}
-		input := map[string]any{"longitude": 0, "latitude": 0, "timestamp": 3000, "timezone": 0, "device": device}
+		input := map[string]any{"longitude": 0, "latitude": 0, "altitude": 0, "timestamp": 3000, "timezone": 0, "device": device}
 		first := requestJSON[model.IngestResult](t, app, "PUT", "/api/location", input, 201)
-		if first.Location.Longitude != 0 || first.Location.Timezone == nil || *first.Location.Timezone != 0 {
+		if first.Location.Longitude != 0 || first.Location.Altitude != 0 || first.Location.Timezone == nil || *first.Location.Timezone != 0 {
 			t.Fatalf("zero values lost: %+v", first)
 		}
-		form := url.Values{"lng": {"0"}, "lat": {"0"}, "datetime": {"1000"}, "device": {device}}
+		form := url.Values{"lng": {"0"}, "lat": {"0"}, "altitude": {"-12.345"}, "timestamp": {"1000"}, "device": {device}}
 		exchange(t, app, "PUT", "/api/location?device=wrong", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()), 201)
 		var multipartBody bytes.Buffer
 		writer := multipart.NewWriter(&multipartBody)
-		for key, value := range map[string]string{"longitude": "0", "latitude": "0", "timestamp": "3000", "timezone": "5.75", "device": device} {
+		for key, value := range map[string]string{"longitude": "0", "latitude": "0", "altitude": "123.4567", "timestamp": "3000", "timezone": "5.75", "device": device} {
 			if err := writer.WriteField(key, value); err != nil {
 				t.Fatal(err)
 			}
@@ -99,26 +99,53 @@ func TestHTTPPostgres(t *testing.T) {
 		if err := json.Unmarshal(response.Body.Bytes(), &third); err != nil {
 			t.Fatal(err)
 		}
+		if third.Location.Altitude != 123.4567 {
+			t.Fatalf("multipart altitude lost: %+v", third.Location)
+		}
 		newest := requestJSON[latest](t, app, "GET", "/api/location?device="+device, nil, 200)
-		if newest.Location == nil || newest.Location.ID != third.Location.ID {
-			t.Fatal("latest must order by observation time then ID")
+		if newest.Location == nil || newest.Location.ID != third.Location.ID || newest.Location.Altitude != third.Location.Altitude {
+			t.Fatal("latest must preserve altitude and order by observation time then ID")
 		}
 		page := requestJSON[model.LocationPage](t, app, "GET", query+"&limit=2", nil, 200)
 		if len(page.Locations) != 2 || page.Locations[0].Timestamp != 1000 ||
-			page.Locations[0].Timezone != nil || page.Locations[1].ID != first.Location.ID || !page.Pagination.HasMore {
+			page.Locations[0].Timezone != nil || page.Locations[0].Altitude != -12.345 ||
+			page.Locations[1].ID != first.Location.ID || page.Locations[1].Altitude != 0 || !page.Pagination.HasMore {
 			t.Fatalf("unexpected page: %+v", page)
 		}
 		page = requestJSON[model.LocationPage](t, app, "GET", query+"&limit=2&offset=2", nil, 200)
-		if len(page.Locations) != 1 || page.Pagination.HasMore {
+		if len(page.Locations) != 1 || page.Locations[0].Altitude != 123.4567 || page.Pagination.HasMore {
 			t.Fatal("incorrect final page")
 		}
-		input["timestamp"] = "2024-01-01T08:00:00+08:00"
-		dated := requestJSON[model.IngestResult](t, app, "PUT", "/api/location", input, 201)
-		if dated.Location.Timestamp != 1704067200000 {
-			t.Fatal("datetime was not normalized")
+		input["timestamp"] = int64(1704067200000)
+		input["altitude"] = 12.3456
+		later := requestJSON[model.IngestResult](t, app, "PUT", "/api/location", input, 201)
+		if later.Location.Timestamp != 1704067200000 || later.Location.Altitude != 12.3456 {
+			t.Fatalf("timestamp or JSON altitude changed: %+v", later.Location)
+		}
+	})
+	t.Run("missing and null altitude use non-null defaults", func(t *testing.T) {
+		type response struct {
+			Location map[string]any `json:"location"`
+		}
+		input := map[string]any{"longitude": 0, "latitude": 0, "timestamp": 0, "device": device + "-defaults"}
+		for _, name := range []string{"missing", "null"} {
+			t.Run(name, func(t *testing.T) {
+				if name == "null" {
+					input["altitude"], input["city"] = nil, nil
+				}
+				created := requestJSON[response](t, app, "PUT", "/api/location", input, 201)
+				stored := requestJSON[response](t, app, "GET", "/api/location?device="+device+"-defaults", nil, 200)
+				for _, location := range []map[string]any{created.Location, stored.Location} {
+					if location["altitude"] != float64(0) || location["city"] != "" {
+						t.Fatalf("expected numeric altitude and string city defaults, got %v", location)
+					}
+				}
+			})
 		}
 	})
 	t.Run("projects and encoded names", func(t *testing.T) {
+		requestJSON[map[string]any](t, app, "POST", "/api/projects",
+			map[string]any{"name": device, "startTime": "1970-01-01T00:00:01Z", "endTime": 3000}, 400)
 		for _, name := range []string{device + " / %2F + 地点", strconv.FormatInt(time.Now().UnixNano(), 10)} {
 			p := requestJSON[projectResponse](t, app, "POST", "/api/projects",
 				map[string]any{"name": name, "startTime": 1000, "endTime": 3000}, 201).Project
@@ -143,7 +170,8 @@ func TestHTTPPostgres(t *testing.T) {
 				t.Fatalf("inclusive filters did not intersect: %+v", filtered)
 			}
 			path := "/api/projects/" + strconv.FormatInt(p.ID, 10)
-			for _, body := range []any{map[string]any{}, map[string]any{"name": nil}, map[string]any{"endTime": nil}, map[string]any{"endTime": 999}} {
+			for _, body := range []any{map[string]any{}, map[string]any{"name": nil}, map[string]any{"endTime": nil},
+				map[string]any{"endTime": 999}, map[string]any{"startTime": "1970-01-01T00:00:01Z"}} {
 				requestJSON[map[string]any](t, app, "PATCH", path, body, 400)
 			}
 			exchange(t, app, "DELETE", path, "", nil, 405)
@@ -155,29 +183,35 @@ func TestHTTPPostgres(t *testing.T) {
 		for _, body := range []any{
 			map[string]any{"longitude": 181, "latitude": 0, "timestamp": 0, "device": device},
 			map[string]any{"longitude": 0, "latitude": nil, "timestamp": 0, "device": device},
+			map[string]any{"longitude": 0, "latitude": 0, "datetime": 0, "device": device},
+			map[string]any{"longitude": 0, "latitude": 0, "timestamp": "2024-01-01T00:00:00Z", "device": device},
 			map[string]any{"longitude": 0, "latitude": 0, "timestamp": 0, "device": device, "timezone": 8.001},
+			map[string]any{"longitude": 0, "latitude": 0, "timestamp": 0, "device": device, "altitude": "NaN"},
 		} {
 			requestJSON[map[string]any](t, app, "PUT", "/api/location", body, 400)
 		}
-		var body bytes.Buffer
-		writer := multipart.NewWriter(&body)
-		file, err := writer.CreateFormFile("longitude", "coordinate.txt")
-		if err != nil {
-			t.Fatal(err)
+		for _, field := range []string{"longitude", "altitude"} {
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			file, err := writer.CreateFormFile(field, "coordinate.txt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(file, "0"); err != nil {
+				t.Fatal(err)
+			}
+			_ = writer.WriteField("longitude", "0")
+			_ = writer.WriteField("latitude", "0")
+			_ = writer.WriteField("timestamp", "0")
+			_ = writer.WriteField("device", device)
+			_ = writer.Close()
+			exchange(t, app, "PUT", "/api/location", writer.FormDataContentType(), &body, 400)
 		}
-		if _, err := io.WriteString(file, "0"); err != nil {
-			t.Fatal(err)
-		}
-		_ = writer.WriteField("latitude", "0")
-		_ = writer.WriteField("timestamp", "0")
-		_ = writer.WriteField("device", device)
-		_ = writer.Close()
-		exchange(t, app, "PUT", "/api/location", writer.FormDataContentType(), &body, 400)
 		after := requestJSON[model.LocationPage](t, app, "GET", query, nil, 200)
 		if len(before.Locations) != len(after.Locations) {
 			t.Fatal("invalid request wrote a record")
 		}
-		for _, suffix := range []string{"&view=unknown", "&since=3000&until=1000", "&limit=5001", "&offset=-1"} {
+		for _, suffix := range []string{"&view=unknown", "&since=3000&until=1000", "&since=2024-01-01T00:00:00Z", "&limit=5001", "&offset=-1"} {
 			requestJSON[map[string]any](t, app, "GET", query+suffix, nil, 400)
 		}
 	})

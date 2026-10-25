@@ -66,7 +66,7 @@ func withTx[T any](ctx context.Context, client *ent.Client, options *sql.TxOptio
 
 func locationJSON(row *ent.Location) model.Location {
 	return model.Location{
-		ID: row.ID, Longitude: row.Longitude, Latitude: row.Latitude,
+		ID: row.ID, Longitude: row.Longitude, Latitude: row.Latitude, Altitude: row.Altitude,
 		City: row.City, Device: row.Device, Timestamp: row.Timestamp,
 		Timezone: row.Timezone, Quality: qualityJSON(row.Edges.Quality),
 	}

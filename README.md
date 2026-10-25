@@ -108,7 +108,8 @@ curl --fail-with-body -X PUT http://localhost:8080/api/location \
   -H "Authorization: Bearer $FOOTPRINT_TOKEN" \
   --data-urlencode 'longitude=121.4737' \
   --data-urlencode 'latitude=31.2304' \
-  --data-urlencode "datetime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --data-urlencode 'altitude=12.5' \
+  --data-urlencode "timestamp=$(date +%s)000" \
   --data-urlencode 'timezone=8' \
   --data-urlencode 'device=example-device'
 ```
@@ -120,7 +121,7 @@ curl --fail-with-body 'http://localhost:8080/api/locations?device=example-device
   -H "Authorization: Bearer $FOOTPRINT_TOKEN"
 ```
 
-正式接入时, 使用设备实际采集的 WGS84 经纬度, 观测时间和设备标识. 完整的上报字段, 查询参数和响应格式见 [API 文档](docs/api.md). 每次上报都会新增记录, 重复发送同一个点不会自动去重.
+正式接入时, 使用设备实际采集的 WGS84 经纬度, 观测时间和设备标识. 可通过 `altitude` 上报海拔米数, 支持负数和小数; 省略或传 `null` 时保存为 `0`. 完整的上报字段, 查询参数和响应格式见 [API 文档](docs/api.md). 每次上报都会新增记录, 重复发送同一个点不会自动去重.
 
 ## 文档与反馈
 

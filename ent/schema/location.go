@@ -15,6 +15,7 @@ func (Location) Fields() []ent.Field {
 		field.Int64("id"),
 		field.Float("longitude").Min(-180).Max(180),
 		field.Float("latitude").Min(-90).Max(90),
+		field.Float("altitude").Default(0),
 		field.String("city").Default(""),
 		field.String("device").NotEmpty(),
 		field.Int64("timestamp").NonNegative().Max(8_640_000_000_000_000),

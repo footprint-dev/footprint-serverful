@@ -5,6 +5,7 @@ import "encoding/json"
 type LocationInput struct {
 	Longitude float64
 	Latitude  float64
+	Altitude  *float64
 	City      string
 	Device    string
 	Timestamp int64
@@ -23,6 +24,7 @@ type Location struct {
 	ID        int64    `json:"id"`
 	Longitude float64  `json:"longitude"`
 	Latitude  float64  `json:"latitude"`
+	Altitude  float64  `json:"altitude"`
 	City      string   `json:"city"`
 	Device    string   `json:"device"`
 	Timestamp int64    `json:"timestamp"`

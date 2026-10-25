@@ -12,13 +12,20 @@ import (
 func locationInput(body map[string]any) (model.LocationInput, error) {
 	var input model.LocationInput
 	var err error
-	if input.Longitude, err = number(coalesce(body, "longitude", "lng"), "longitude", -180, 180); err != nil {
+	if input.Longitude, err = boundedNumber(coalesce(body, "longitude", "lng"), "longitude", -180, 180); err != nil {
 		return input, err
 	}
-	if input.Latitude, err = number(coalesce(body, "latitude", "lat"), "latitude", -90, 90); err != nil {
+	if input.Latitude, err = boundedNumber(coalesce(body, "latitude", "lat"), "latitude", -90, 90); err != nil {
 		return input, err
 	}
-	if input.Timestamp, err = timestamp(coalesce(body, "timestamp", "datetime"), "timestamp"); err != nil {
+	if value := body["altitude"]; value != nil {
+		altitude, err := number(value, "altitude")
+		if err != nil {
+			return input, err
+		}
+		input.Altitude = &altitude
+	}
+	if input.Timestamp, err = timestamp(body["timestamp"], "timestamp"); err != nil {
 		return input, err
 	}
 	if input.Timezone, err = timezone(body["timezone"]); err != nil {

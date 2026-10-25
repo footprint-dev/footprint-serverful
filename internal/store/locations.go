@@ -112,6 +112,7 @@ func (s *Store) ingest(ctx context.Context, input model.LocationInput) (*ent.Loc
 			return nil, err
 		}
 		row, err := tx.Location.Create().SetLongitude(input.Longitude).SetLatitude(input.Latitude).
+			SetNillableAltitude(input.Altitude).
 			SetDevice(input.Device).SetCity(input.City).SetTimestamp(input.Timestamp).SetNillableTimezone(input.Timezone).Save(ctx)
 		if err != nil {
 			return nil, err

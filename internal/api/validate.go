@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf16"
 )
 
@@ -23,7 +22,6 @@ const (
 var (
 	digitsPattern = regexp.MustCompile(`^[0-9]+$`)
 	idPattern     = regexp.MustCompile(`^[1-9][0-9]*$`)
-	isoPattern    = regexp.MustCompile(`(?i)^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$`)
 )
 
 func readBody(r *http.Request) (map[string]any, error) {
@@ -76,7 +74,7 @@ func readBody(r *http.Request) (map[string]any, error) {
 	return body, nil
 }
 
-func number(value any, field string, minValue, maxValue float64) (float64, error) {
+func number(value any, field string) (float64, error) {
 	var text string
 	switch v := value.(type) {
 	case json.Number:
@@ -87,7 +85,18 @@ func number(value any, field string, minValue, maxValue float64) (float64, error
 		return 0, badRequest(field, field+" is required and must be a number")
 	}
 	n, err := strconv.ParseFloat(text, 64)
-	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < minValue || n > maxValue {
+	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
+		return 0, badRequest(field, field+" must be a finite number")
+	}
+	return n, nil
+}
+
+func boundedNumber(value any, field string, minValue, maxValue float64) (float64, error) {
+	n, err := number(value, field)
+	if err != nil {
+		return 0, err
+	}
+	if n < minValue || n > maxValue {
 		return 0, badRequest(field, fmt.Sprintf("%s must be between %g and %g", field, minValue, maxValue))
 	}
 	return n, nil
@@ -102,29 +111,14 @@ func timestamp(value any, field string) (int64, error) {
 		return int64(f), nil
 	}
 	text, ok := value.(string)
-	if ok && digitsPattern.MatchString(text) {
-		n, err := strconv.ParseInt(text, 10, 64)
-		if err != nil || n > maxTimestamp {
-			return 0, badRequest(field, field+" must be a valid Unix timestamp in milliseconds")
-		}
-		return n, nil
+	if !ok || !digitsPattern.MatchString(text) {
+		return 0, badRequest(field, field+" must be a valid Unix timestamp in milliseconds")
 	}
-	if !ok || !isoPattern.MatchString(text) {
-		return 0, badRequest(field, field+" must be milliseconds or an ISO 8601 datetime with a timezone")
+	n, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || n > maxTimestamp {
+		return 0, badRequest(field, field+" must be a valid Unix timestamp in milliseconds")
 	}
-	text = strings.ToUpper(text)
-	if !strings.HasSuffix(text, "Z") {
-		hour, _ := strconv.Atoi(text[len(text)-5 : len(text)-3])
-		minute, _ := strconv.Atoi(text[len(text)-2:])
-		if hour > 23 || minute > 59 {
-			return 0, badRequest(field, field+" must be a valid datetime")
-		}
-	}
-	parsed, err := time.Parse(time.RFC3339Nano, text)
-	if err != nil || parsed.UnixMilli() < 0 || parsed.UnixMilli() > maxTimestamp {
-		return 0, badRequest(field, field+" must be a valid datetime")
-	}
-	return parsed.UnixMilli(), nil
+	return n, nil
 }
 
 func text(value any, field string) (string, error) {
@@ -144,7 +138,7 @@ func timezone(value any) (*float64, error) {
 	if value == nil {
 		return nil, nil
 	}
-	hours, err := number(value, "timezone", -12, 14)
+	hours, err := boundedNumber(value, "timezone", -12, 14)
 	if err != nil {
 		return nil, err
 	}
