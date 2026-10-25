@@ -47,3 +47,25 @@ func TestEmbeddedFrontend(t *testing.T) {
 		t.Fatalf("static routes changed API method handling: %d %v", response.Code, response.Header())
 	}
 }
+
+func TestEmbeddedPWA(t *testing.T) {
+	e := New(nil, config.Config{Server: config.Server{IngestToken: "test-token"}})
+	for _, tc := range []struct {
+		path        string
+		contentType string
+	}{
+		{"/manifest.webmanifest", "application/manifest+json"},
+		{"/sw.js", "text/javascript"},
+		{"/pwa-192x192.png", "image/png"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			e.ServeHTTP(response, httptest.NewRequest("GET", tc.path, nil))
+			if response.Code != 200 || response.Body.Len() == 0 ||
+				!strings.HasPrefix(response.Header().Get("Content-Type"), tc.contentType) ||
+				response.Header().Get("Cache-Control") != "no-cache" {
+				t.Fatalf("unexpected PWA response: %d %v", response.Code, response.Header())
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package web
 import (
 	"embed"
 	"io/fs"
+	"mime"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -12,6 +13,9 @@ import (
 var files embed.FS
 
 func Register(e *echo.Echo) {
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		panic(err)
+	}
 	assets := echo.MustSubFS(files, "dist")
 	register := func(path string, handler echo.HandlerFunc, cache string) {
 		serve := func(c *echo.Context) error {
